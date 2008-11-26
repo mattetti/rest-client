@@ -2,6 +2,13 @@ require 'uri'
 require 'net/https'
 require 'zlib'
 require 'stringio'
+begin
+  gem 'curb'
+rescue Gem::LoadError
+  puts 'install curb to get faster get requests'
+else
+  require 'curl'
+end
 
 require File.dirname(__FILE__) + '/resource'
 require File.dirname(__FILE__) + '/request_errors'
@@ -111,7 +118,11 @@ module RestClient
 
 		def execute_inner
 			uri = parse_url_with_auth(url)
-			transmit uri, net_http_request_class(method).new(uri.request_uri, make_headers(headers)), payload
+			if defined?(Curl) && method.to_s.downcase == "get"
+			  transmit uri, Curl::Easy.http_get(url), payload
+		  else
+			  transmit uri, net_http_request_class(method).new(uri.request_uri, make_headers(headers)), payload
+		  end
 		end
 
 		def make_headers(user_headers)
@@ -166,17 +177,23 @@ module RestClient
 		def transmit(uri, req, payload)
 			setup_credentials(req)
 
+      if defined?(Curl) && method.to_s.downcase == "get"
+        req.follow_location = true
+        # req.perform
+        process_result req
+      else
 			net = net_http_class.new(uri.host, uri.port)
-			net.use_ssl = uri.is_a?(URI::HTTPS)
-			net.verify_mode = OpenSSL::SSL::VERIFY_NONE
+  			net.use_ssl = uri.is_a?(URI::HTTPS)
+  			net.verify_mode = OpenSSL::SSL::VERIFY_NONE
 
-			display_log request_log
+  			display_log request_log
 
-			net.start do |http|
-				res = http.request(req, payload || "")
-				display_log response_log(res)
-				process_result res
-			end
+  			net.start do |http|
+  				res = http.request(req, payload || "")
+  				display_log response_log(res)
+  				process_result res
+  			end
+		  end
 		rescue EOFError
 			raise RestClient::ServerBrokeConnection
 		rescue Timeout::Error
@@ -186,12 +203,44 @@ module RestClient
 		def setup_credentials(req)
 			req.basic_auth(user, password) if user
 		end
+		
+		def response_status_code(res)
+		  if res.respond_to?(:code)
+		    res.code
+	    elsif res.respond_to?(:response_code)
+	      res.response_code.to_s
+      end
+		end
+		
+		def response_body(res)
+		  if res.respond_to?(:body)
+		    res.body
+	    elsif res.respond_to?(:body_str)
+	      res.body_str
+		  end
+		end
+		
+		def response_encoding(res)
+		  if res.respond_to?(:header_str)
+		    res.header_str[/Transfer-Encoding:\s(.+)\r/,1]
+	    else
+	      res['content-encoding']
+      end
+		end
+		
+		def response_location(res)
+		  if res.respond_to?(:header_str)
+		    res.header_str[/Location:\s(.+)\r/,1]
+	    else
+	      res.header['Location']
+      end
+		end
 
-		def process_result(res)
-			if %w(200 201 202).include? res.code
-				decode res['content-encoding'], res.body
-			elsif %w(301 302 303).include? res.code
-				url = res.header['Location']
+		def process_result(res)	 
+			if %w(200 201 202).include? response_status_code(res)
+				decode response_encoding(res), response_body(res)
+			elsif %w(301 302 303).include? response_status_code(res)
+				url = response_location(res)
 
 				if url !~ /^http/
 					uri = URI.parse(@url)
@@ -200,9 +249,9 @@ module RestClient
 				end
 
 				raise Redirect, url
-			elsif res.code == "401"
+			elsif response_status_code(res) == "401"
 				raise Unauthorized
-			elsif res.code == "404"
+			elsif response_status_code(res) == "404"
 				raise ResourceNotFound
 			else
 				raise RequestFailed, res

@@ -54,7 +54,13 @@ module RestClient
 		end
 
 		def http_code
-			@response.code.to_i if @response
+		  if @response
+			 if @response.respond_to?(:code)
+			   @response.code.to_i
+		   elsif @response.respond_to?(:response_code)
+		     @response.response_code.to_i
+	     end
+     end
 		end
 
 		def message

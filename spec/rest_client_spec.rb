@@ -144,28 +144,32 @@ describe RestClient do
 			@request.execute_inner
 		end
 
-		it "transmits the request with Net::HTTP" do
-			@http.should_receive(:request).with('req', 'payload')
-			@request.should_receive(:process_result)
-			@request.should_receive(:response_log)
-			@request.transmit(@uri, 'req', 'payload')
-		end
+    if defined?(Curl)
+      
+    else
+  		it "transmits the request with Net::HTTP" do
+  			@http.should_receive(:request).with('req', 'payload')
+  			@request.should_receive(:process_result)
+  			@request.should_receive(:response_log)
+  			@request.transmit(@uri, 'req', 'payload')
+  		end
 
-		it "uses SSL when the URI refers to a https address" do
-			@uri.stub!(:is_a?).with(URI::HTTPS).and_return(true)
-			@net.should_receive(:use_ssl=).with(true)
-			@http.stub!(:request)
-			@request.stub!(:process_result)
-			@request.stub!(:response_log)
-			@request.transmit(@uri, 'req', 'payload')
-		end
+  		it "uses SSL when the URI refers to a https address" do
+  			@uri.stub!(:is_a?).with(URI::HTTPS).and_return(true)
+  			@net.should_receive(:use_ssl=).with(true)
+  			@http.stub!(:request)
+  			@request.stub!(:process_result)
+  			@request.stub!(:response_log)
+  			@request.transmit(@uri, 'req', 'payload')
+  		end
 
-		it "doesn't send nil payloads" do
-			@http.should_receive(:request).with('req', '')
-			@request.should_receive(:process_result)
-			@request.stub!(:response_log)
-			@request.transmit(@uri, 'req', nil)
-		end
+  		it "doesn't send nil payloads" do
+  			@http.should_receive(:request).with('req', '')
+  			@request.should_receive(:process_result)
+  			@request.stub!(:response_log)
+  			@request.transmit(@uri, 'req', nil)
+  		end
+  	end
 
 		it "passes non-hash payloads straight through" do
 			@request.process_payload("x").should == "x"
@@ -187,17 +191,19 @@ describe RestClient do
 			@request.headers[:content_type].should == 'application/x-www-form-urlencoded'
 		end
 
-		it "sets up the credentials prior to the request" do
-			@http.stub!(:request)
-			@request.stub!(:process_result)
-			@request.stub!(:response_log)
+    unless defined?(Curl)
+  		it "sets up the credentials prior to the request" do
+  			@http.stub!(:request)
+  			@request.stub!(:process_result)
+  			@request.stub!(:response_log)
 
-			@request.stub!(:user).and_return('joe')
-			@request.stub!(:password).and_return('mypass')
-			@request.should_receive(:setup_credentials).with('req')
+  			@request.stub!(:user).and_return('joe')
+  			@request.stub!(:password).and_return('mypass')
+  			@request.should_receive(:setup_credentials).with('req')
 
-			@request.transmit(@uri, 'req', nil)
-		end
+  			@request.transmit(@uri, 'req', nil)
+  		end
+	  end
 
 		it "does not attempt to send any credentials if user is nil" do
 			@request.stub!(:user).and_return(nil)
@@ -214,10 +220,12 @@ describe RestClient do
 			@request.setup_credentials(req)
 		end
 
-		it "catches EOFError and shows the more informative ServerBrokeConnection" do
-			@http.stub!(:request).and_raise(EOFError)
-			lambda { @request.transmit(@uri, 'req', nil) }.should raise_error(RestClient::ServerBrokeConnection)
-		end
+    unless defined?(Curl)
+  		it "catches EOFError and shows the more informative ServerBrokeConnection" do
+  			@http.stub!(:request).and_raise(EOFError)
+  			lambda { @request.transmit(@uri, 'req', nil) }.should raise_error(RestClient::ServerBrokeConnection)
+  		end
+	  end
 
 		it "execute calls execute_inner" do
 			@request.should_receive(:execute_inner)
